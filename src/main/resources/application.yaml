@@ -4,3 +4,23 @@ server:
 spring:
   application:
     name: demo-aws
+
+# No Kubernetes, a aplicação precisa expor métricas de integridade para que o cluster saiba quando rotear tráfego (readiness) e quando reiniciar a aplicação se houver travamento (liveness).
+# Isso habilita automaticamente as rotas:
+# /actuator/health/liveness
+# /actuator/health/readiness
+# Expõe probes de liveness e readiness para o Kubernetes
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
