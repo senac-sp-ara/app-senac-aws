@@ -35,8 +35,3 @@ build/
 ### DS_Store ###
 .DS_Store
 .gitattributes
-
-### Maven ###
-.mvn/
-mvnw
-mvnw.cmd
