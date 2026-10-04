@@ -35,3 +35,10 @@ build/
 ### DS_Store ###
 .DS_Store
 .gitattributes
+
+### Nao ignorar os arquivos maven ###
+# .mvn/
+# mvnw
+# mvnw.cmd
+# Quando a Action executa o checkout na máquina do GitHub, o arquivo ./mvnw precisa existir lá 
+# (o que também faria o build do Dockerfile falhar, já que ele copia o mvnw.
