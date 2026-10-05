@@ -5,6 +5,7 @@ import java.net.UnknownHostException;
 import java.util.Objects;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class ControllerAWS {
 
-    @GetMapping("/hello")
+    @GetMapping(value = "/hello", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> hello(@RequestParam(required = false) String nome) {
         var pessoa = Objects.isNull(nome) ? "Visitante" : nome;
         
@@ -29,10 +30,12 @@ public class ControllerAWS {
             ip = "desconhecido";
             hostName = "desconhecido";
         }
-        return ResponseEntity.status(HttpStatus.OK.value()).body(this.buildHtml(pessoa, hostName, ip));
+        return ResponseEntity.status(HttpStatus.OK)
+                .contentType(MediaType.TEXT_HTML)
+                .body(this.buildHtml(pessoa, hostName, ip));
     }
 
-    private String buildHtml(String pessoa, String hostName, String ip){
+    private String buildHtml(String pessoa, String hostName, String ip) {
         String html = """
             <!DOCTYPE html>
             <html lang="pt-BR">
@@ -135,16 +138,16 @@ public class ControllerAWS {
                         <span class="badge-dot"></span>
                         AWS EKS &bull; Online
                     </div>
-                    <h1>Olá, %s! 👋</h1>
+                    <h1>Olá, {{PESSOA}}! 👋</h1>
                     <p class="subtitle">Bem-vindo ao mundo AWS Cloud & Kubernetes.</p>
                     
                     <div class="info-box">
                         <span class="info-label">Instância / Pod Ativo</span>
-                        <span class="info-value">%s</span>
+                        <span class="info-value">{{HOSTNAME}}</span>
                     </div>
                     <div class="info-box">
                         <span class="info-label">Endereço IP Interno</span>
-                        <span class="info-value">%s</span>
+                        <span class="info-value">{{IP}}</span>
                     </div>
                     <div class="footer">
                         Deploy automatizado via GitHub Actions &bull; Versão 1.0
@@ -152,8 +155,11 @@ public class ControllerAWS {
                 </div>
             </body>
             </html>
-            """.formatted(pessoa, hostName, ip);
+            """;
 
-        return html;
+        return html
+                .replace("{{PESSOA}}", pessoa)
+                .replace("{{HOSTNAME}}", hostName)
+                .replace("{{IP}}", ip);
     }
 }
