@@ -1,0 +1,20 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hello-aws-hpa
+  labels:
+    app: hello-aws
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hello-aws-deployment
+  minReplicas: 1    # Mínimo de Pods em repouso
+  maxReplicas: 3    # Máximo de Pods sob carga pesada
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70   # Escala quando o uso médio de CPU passar de 70%
