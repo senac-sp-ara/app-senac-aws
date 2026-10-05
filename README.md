@@ -7,7 +7,7 @@
 
 ## 📋 Visão Geral da Arquitetura
 
-A aplicação Java (Spring Boot) roda em um cluster **Amazon EKS** com 3 réplicas (Pods) para garantir alta disponibilidade. O tráfego segue o seguinte fluxo:
+A aplicação Java (Spring Boot) roda em um cluster **Amazon EKS** escalando dinamicamente de 1 a 3 réplicas (Pods) gerenciadas pelo **Horizontal Pod Autoscaler (HPA)** para garantir alta disponibilidade e economia de recursos. O tráfego segue o seguinte fluxo:
 
 ```
 [ Usuário / Cliente ]
@@ -22,14 +22,17 @@ A aplicação Java (Spring Boot) roda em um cluster **Amazon EKS** com 3 réplic
 [ Nós EC2 do EKS (Auto Scaling Group) ]
          │
          ▼
-[ Pods da Aplicação Spring Boot (Porta 8080) ]
+[ Pods da Aplicação Spring Boot (Porta 8080 - Auto Scaling 1 a 3 Pods) ]
 ```
 
-Para conectar a aplicação a essa infraestrutura, implementamos 4 etapas principais:
+Para conectar a aplicação a essa infraestrutura com auto scaling completo, implementamos as seguintes etapas:
 1. **Ajustes no Spring Boot:** Integração com **Spring Boot Actuator** (probes de liveness e readiness) e identificação de Pod/IP no Controller.
 2. **Dockerfile Otimizado:** Build multi-stage com Java 21, alpine e usuário sem privilégios de root.
-3. **Manifestos Kubernetes (`k8s/`):** `Deployment` com 3 réplicas e `Service` do tipo `NodePort: 30080`.
-4. **Pipeline CI/CD (GitHub Actions):** Automação completa de testes, build Docker, push no Amazon ECR e deploy no Amazon EKS.
+3. **Manifestos Kubernetes (`k8s/`):** `Deployment` (iniciando em 1 réplica), `Service` (NodePort: 30080) e `HPA` (Auto Scaling de 1 a 3 réplicas com base em CPU).
+4. **Instalação do Metrics Server no Cluster:** Leitor de métricas essencial para o HPA funcionar.
+5. **Permissões na AWS e Secrets no GitHub:** Configuração de credenciais para automação.
+6. **Pipeline CI/CD (GitHub Actions):** Automação completa de testes, build Docker, push no Amazon ECR e deploy simultâneo do Service, Deployment e HPA no Amazon EKS.
+
 
 ---
 
@@ -181,7 +184,7 @@ mkdir -p k8s
 
 ### 3.1. Manifesto de Deployment: `k8s/deployment.yaml`
 
-Define 3 réplicas da aplicação, alocação de recursos (CPU/Memória) e as checagens de integridade (*health checks*):
+Define a aplicação com **`replicas: 1`** (iniciando em modo econômico, deixando o HPA escalar automaticamente de 1 até 3 sob demanda), limites de recursos e as checagens de integridade (*health checks*):
 
 ```yaml
 apiVersion: apps/v1
@@ -191,7 +194,7 @@ metadata:
   labels:
     app: hello-aws
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: hello-aws
@@ -250,6 +253,69 @@ spec:
       targetPort: 8080
       nodePort: 30080
 ```
+
+---
+
+### 3.3. Manifesto de Auto Scaling de Pods: `k8s/hpa.yaml`
+
+O **HPA (Horizontal Pod Autoscaler)** gerencia dinamicamente o número de réplicas de acordo com a demanda de CPU da aplicação. Ele mantém **1 Pod** ativo em repouso e escala até **3 Pods** quando o uso médio de CPU ultrapassar **70%**:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hello-aws-hpa
+  labels:
+    app: hello-aws
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hello-aws-deployment
+  minReplicas: 1    # Mínimo de Pods em repouso
+  maxReplicas: 3    # Máximo de Pods sob carga pesada
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70   # Escala quando o uso médio de CPU passar de 70%
+```
+
+> [!NOTE]
+> **Por que o HPA fica na aplicação e não na infraestrutura?**  
+> Porque ele aponta diretamente para o `Deployment` da aplicação (`hello-aws-deployment`) e define limites baseados nos `requests` de CPU da própria aplicação Java.
+
+---
+
+### 3.4. Instalação e Teste do Metrics Server no Cluster EKS
+
+Para que o HPA consiga medir o consumo real de CPU e Memória dos Pods e nós, o cluster EKS precisa do **Metrics Server**. 
+
+Execute os comandos abaixo no seu terminal:
+
+```bash
+# 1. Conecta o kubectl ao cluster EKS
+aws eks update-kubeconfig --name cluster-app-senac-aws --region us-east-2
+
+# 2. Testa se o kubectl já enxerga o cluster
+kubectl get nodes
+
+# 3. Instala o Metrics Server oficial
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# 4. Aguarda ele iniciar e ficar saudável (leva cerca de 30 a 60 segundos)
+kubectl rollout status deployment/metrics-server -n kube-system
+
+# 5. Testa se a coleta de métricas de nós e pods está funcionando
+kubectl top nodes
+kubectl top pods
+
+# 6. Verifica o status do HPA (mínimo, máximo e réplicas atuais)
+kubectl get hpa
+```
+
 
 ---
 
@@ -391,8 +457,9 @@ jobs:
         
         kubectl apply -f k8s/service.yaml
         kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/hpa.yaml
         
-        # Aguarda as 3 instâncias ficarem prontas e saudáveis
+        # Aguarda a instância ficar pronta e saudável
         kubectl rollout status deployment/hello-aws-deployment --timeout=180s
 ```
 
